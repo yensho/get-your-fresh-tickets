@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -79,7 +80,7 @@ func (b *BaseHandler) AuthCreateHandler(w http.ResponseWriter, r *http.Request) 
 	var jsonBody AuthCreateRequest
 	err := json.NewDecoder(r.Body).Decode(&jsonBody)
 	if err != nil {
-		w.WriteHeader(500)
+		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("auth request failed"))
 		b.log.Error(err.Error())
 		return
@@ -89,7 +90,7 @@ func (b *BaseHandler) AuthCreateHandler(w http.ResponseWriter, r *http.Request) 
 	_, err = txn.Exec(`INSERT INTO auth (user, token) VALUES ($1, $2)`, jsonBody.Username, string(bytes))
 	if err != nil {
 		txn.Rollback()
-		w.WriteHeader(500)
+		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("auth request failed"))
 		b.log.Error(err.Error())
 		return
@@ -120,7 +121,7 @@ func (b *BaseHandler) createSpace(w http.ResponseWriter, r *http.Request) {
 	json.Unmarshal(body, &createRequest)
 	if err != nil {
 		txn.Rollback()
-		w.WriteHeader(500)
+		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("could not unmarshal request json"))
 		b.log.Error(err.Error())
 		return
@@ -140,22 +141,14 @@ func (b *BaseHandler) createSpace(w http.ResponseWriter, r *http.Request) {
 	_, err = txn.NamedExec(`INSERT INTO spaces (space_nm, space_section_nm, space_section_seats) VALUES (:space_nm, :space_section_nm, :space_section_seats)`, entries)
 	if err != nil {
 		txn.Rollback()
-		w.WriteHeader(500)
+		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("error inserting records into db"))
-		b.log.Error(err.Error())
-		return
-	}
-	respBytes, err := json.Marshal(SpaceCreateRequest{Name: createRequest.Name})
-	if err != nil {
-		txn.Rollback()
-		w.WriteHeader(500)
-		w.Write([]byte("error marshaling json response"))
 		b.log.Error(err.Error())
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(respBytes)
+	w.Write(body)
 
 }
 
@@ -165,7 +158,7 @@ func (b *BaseHandler) getSpace(w http.ResponseWriter, r *http.Request) {
 	var rows []Space
 	err := b.db.Select(&rows, `SELECT * FROM spaces WHERE space_nm=?`, spaceName)
 	if err != nil {
-		w.WriteHeader(500)
+		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("error querying db"))
 		b.log.Error(err.Error())
 		return
@@ -187,7 +180,7 @@ func (b *BaseHandler) getSpace(w http.ResponseWriter, r *http.Request) {
 
 	respBytes, err := json.Marshal(resp)
 	if err != nil {
-		w.WriteHeader(500)
+		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("error marshaling json response"))
 		b.log.Error(err.Error())
 		return
@@ -198,6 +191,66 @@ func (b *BaseHandler) getSpace(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (b *BaseHandler) updateSpace(w http.ResponseWriter, r *http.Request) {}
+func (b *BaseHandler) updateSpace(w http.ResponseWriter, r *http.Request) {
+	txn := b.db.MustBeginTx(r.Context(), nil)
+	defer txn.Commit()
+	spaceName := chi.URLParam(r, "spaceName")
 
-func (b *BaseHandler) deleteSpace(w http.ResponseWriter, r *http.Request) {}
+	var createRequest SpaceCreateRequest
+	body, err := io.ReadAll(r.Body)
+	json.Unmarshal(body, &createRequest)
+	if err != nil {
+		txn.Rollback()
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("could not unmarshal request json"))
+		b.log.Error(err.Error())
+		return
+	}
+
+	_, err = txn.NamedExec(`DELETE * FROM spaces WHERE space_nm = $1`, spaceName)
+	if err != nil {
+		txn.Rollback()
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("error accessing db"))
+		b.log.Error(err.Error())
+		return
+	}
+
+	var entries []Space
+	for _, area := range createRequest.Areas {
+		seats, err := json.Marshal(area.Seats)
+		if err != nil {
+			continue
+		}
+		entries = append(entries, Space{
+			Name:    createRequest.Name,
+			Section: area.Section,
+			Seats:   seats,
+		})
+	}
+	_, err = txn.NamedExec(`INSERT INTO spaces (space_nm, space_section_nm, space_section_seats) VALUES (:space_nm, :space_section_nm, :space_section_seats)`, entries)
+	if err != nil {
+		txn.Rollback()
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("error inserting records into db"))
+		b.log.Error(err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(body)
+}
+
+func (b *BaseHandler) deleteSpace(w http.ResponseWriter, r *http.Request) {
+	spaceName := chi.URLParam(r, "spaceName")
+
+	_, err := b.db.Exec(`DELETE * FROM spaces WHERE space_nm = $1`, spaceName)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("error accessing db"))
+		b.log.Error(err.Error())
+		return
+	}
+
+	w.Write([]byte(fmt.Sprintf(`{"name": "%s"}`, spaceName)))
+}
