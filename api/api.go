@@ -56,7 +56,7 @@ func NewRouter(db *sqlx.DB, log *slog.Logger) *chi.Mux {
 		})
 	})
 
-	//router.HandleFunc("/hello", BasicAuth(base.HomeHandler))
+	router.HandleFunc("/hello", base.HomeHandler)
 
 	return router
 }
@@ -87,7 +87,14 @@ func (b *BaseHandler) AuthCreateHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	bytes, err := bcrypt.GenerateFromPassword([]byte(jsonBody.Password), 14)
-	_, err = txn.Exec(`INSERT INTO auth (user, token) VALUES ($1, $2)`, jsonBody.Username, string(bytes))
+	if err != nil {
+		txn.Rollback()
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("auth request failed"))
+		b.log.Error(err.Error())
+		return
+	}
+	_, err = txn.Exec(`INSERT INTO gyft.auth (user_name, pass_token) VALUES ($1, $2)`, jsonBody.Username, string(bytes))
 	if err != nil {
 		txn.Rollback()
 		w.WriteHeader(http.StatusInternalServerError)
@@ -103,7 +110,12 @@ func (b *BaseHandler) BasicAuth(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, pass, _ := r.BasicAuth()
 		var token string
-		b.db.Get(&token, `SELECT token FROM auth WHERE user=$1`, user)
+		err := b.db.Get(&token, `SELECT pass_token FROM gyft.auth WHERE user_name=$1`, user)
+		if err != nil {
+			b.log.Error(err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		if err := bcrypt.CompareHashAndPassword([]byte(token), []byte(pass)); err != nil {
 			w.WriteHeader(http.StatusForbidden)
 			return
@@ -138,7 +150,7 @@ func (b *BaseHandler) createSpace(w http.ResponseWriter, r *http.Request) {
 			Seats:   seats,
 		})
 	}
-	_, err = txn.NamedExec(`INSERT INTO spaces (space_nm, space_section_nm, space_section_seats) VALUES (:space_nm, :space_section_nm, :space_section_seats)`, entries)
+	_, err = txn.NamedExec(`INSERT INTO gyft.spaces (space_nm, space_section_nm, space_section_seats) VALUES (:space_nm, :space_section_nm, :space_section_seats)`, entries)
 	if err != nil {
 		txn.Rollback()
 		w.WriteHeader(http.StatusInternalServerError)
@@ -156,7 +168,7 @@ func (b *BaseHandler) getSpace(w http.ResponseWriter, r *http.Request) {
 	spaceName := chi.URLParam(r, "spaceName")
 
 	var rows []Space
-	err := b.db.Select(&rows, `SELECT * FROM spaces WHERE space_nm=?`, spaceName)
+	err := b.db.Select(&rows, `SELECT * FROM gyft.spaces WHERE space_nm=?`, spaceName)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("error querying db"))
@@ -207,7 +219,7 @@ func (b *BaseHandler) updateSpace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = txn.NamedExec(`DELETE * FROM spaces WHERE space_nm = $1`, spaceName)
+	_, err = txn.NamedExec(`DELETE * FROM gyft.spaces WHERE space_nm = $1`, spaceName)
 	if err != nil {
 		txn.Rollback()
 		w.WriteHeader(http.StatusInternalServerError)
@@ -228,7 +240,7 @@ func (b *BaseHandler) updateSpace(w http.ResponseWriter, r *http.Request) {
 			Seats:   seats,
 		})
 	}
-	_, err = txn.NamedExec(`INSERT INTO spaces (space_nm, space_section_nm, space_section_seats) VALUES (:space_nm, :space_section_nm, :space_section_seats)`, entries)
+	_, err = txn.NamedExec(`INSERT INTO gyft.spaces (space_nm, space_section_nm, space_section_seats) VALUES (:space_nm, :space_section_nm, :space_section_seats)`, entries)
 	if err != nil {
 		txn.Rollback()
 		w.WriteHeader(http.StatusInternalServerError)
@@ -244,7 +256,7 @@ func (b *BaseHandler) updateSpace(w http.ResponseWriter, r *http.Request) {
 func (b *BaseHandler) deleteSpace(w http.ResponseWriter, r *http.Request) {
 	spaceName := chi.URLParam(r, "spaceName")
 
-	_, err := b.db.Exec(`DELETE * FROM spaces WHERE space_nm = $1`, spaceName)
+	_, err := b.db.Exec(`DELETE * FROM gyft.spaces WHERE space_nm = $1`, spaceName)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("error accessing db"))

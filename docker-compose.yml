@@ -5,9 +5,11 @@ services:
     hostname: postgres
     environment:
       DB_READ_HOST: "postgres"
+      POSTGRES_PASSWORD: "admin"
+      POSTGRES_USER: "postgres"
     ports:
       - "5432:5432"
     volumes:
       - type: bind
-        source: ./internal/figures/postgres/tables.sql
+        source: ./internal/fixtures/postgres/tables.sql
         target: /tmp/psql_data/tables.sql
