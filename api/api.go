@@ -10,7 +10,6 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/jmoiron/sqlx"
-	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/exp/slog"
 )
 
@@ -21,12 +20,6 @@ type helloResponse struct {
 type BaseHandler struct {
 	db  *sqlx.DB
 	log *slog.Logger
-}
-
-var currentTokens map[string]string
-
-func init() {
-	currentTokens = make(map[string]string)
 }
 
 func NewApiServer(db *sqlx.DB, log *slog.Logger) *http.Server {
@@ -44,10 +37,10 @@ func NewRouter(db *sqlx.DB, log *slog.Logger) *chi.Mux {
 		db:  db,
 		log: log,
 	}
-	router.HandleFunc("/auth", base.AuthCreateHandler)
+	//router.HandleFunc("/auth", base.AuthCreateHandler)
 	//router.With(base.BasicAuth).Post("/space", base.createSpace)
 	router.Route("/space", func(r chi.Router) {
-		r.Use(base.BasicAuth)
+		//r.Use(base.BasicAuth)
 		r.Post("/", base.createSpace)
 		r.Route("/{spaceName}", func(r chi.Router) {
 			r.Get("/", base.getSpace)
@@ -72,57 +65,56 @@ func (b *BaseHandler) HomeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(respBytes)
 }
 
-func (b *BaseHandler) AuthCreateHandler(w http.ResponseWriter, r *http.Request) {
-	// token := r.Header["token"]
-	txn := b.db.MustBeginTx(r.Context(), nil)
-	defer txn.Commit()
+// func (b *BaseHandler) AuthCreateHandler(w http.ResponseWriter, r *http.Request) {
+// 	// token := r.Header["token"]
+// 	txn := b.db.MustBeginTx(r.Context(), nil)
+// 	defer txn.Commit()
 
-	var jsonBody AuthCreateRequest
-	err := json.NewDecoder(r.Body).Decode(&jsonBody)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("auth request failed"))
-		b.log.Error(err.Error())
-		return
-	}
+// 	var jsonBody AuthCreateRequest
+// 	err := json.NewDecoder(r.Body).Decode(&jsonBody)
+// 	if err != nil {
+// 		w.WriteHeader(http.StatusInternalServerError)
+// 		w.Write([]byte("auth request failed"))
+// 		b.log.Error(err.Error())
+// 		return
+// 	}
 
-	bytes, err := bcrypt.GenerateFromPassword([]byte(jsonBody.Password), 14)
-	if err != nil {
-		txn.Rollback()
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("auth request failed"))
-		b.log.Error(err.Error())
-		return
-	}
-	_, err = txn.Exec(`INSERT INTO gyft.auth (user_name, pass_token) VALUES ($1, $2)`, jsonBody.Username, string(bytes))
-	if err != nil {
-		txn.Rollback()
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("auth request failed"))
-		b.log.Error(err.Error())
-		return
-	}
-	//currentTokens[jsonBody.Username] = string(bytes)
-	w.WriteHeader(200)
-}
+// 	bytes, err := bcrypt.GenerateFromPassword([]byte(jsonBody.Password), 14)
+// 	if err != nil {
+// 		txn.Rollback()
+// 		w.WriteHeader(http.StatusInternalServerError)
+// 		w.Write([]byte("auth request failed"))
+// 		b.log.Error(err.Error())
+// 		return
+// 	}
+// 	_, err = txn.Exec(`INSERT INTO gyft.auth (user_name, pass_token) VALUES ($1, $2)`, jsonBody.Username, string(bytes))
+// 	if err != nil {
+// 		txn.Rollback()
+// 		w.WriteHeader(http.StatusInternalServerError)
+// 		w.Write([]byte("auth request failed"))
+// 		b.log.Error(err.Error())
+// 		return
+// 	}
+// 	w.WriteHeader(200)
+// }
 
-func (b *BaseHandler) BasicAuth(handler http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, pass, _ := r.BasicAuth()
-		var token string
-		err := b.db.Get(&token, `SELECT pass_token FROM gyft.auth WHERE user_name=$1`, user)
-		if err != nil {
-			b.log.Error(err.Error())
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		if err := bcrypt.CompareHashAndPassword([]byte(token), []byte(pass)); err != nil {
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
-		handler.ServeHTTP(w, r)
-	})
-}
+// func (b *BaseHandler) BasicAuth(handler http.Handler) http.Handler {
+// 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// 		user, pass, _ := r.BasicAuth()
+// 		var token string
+// 		err := b.db.Get(&token, `SELECT pass_token FROM gyft.auth WHERE user_name=$1`, user)
+// 		if err != nil {
+// 			b.log.Error(err.Error())
+// 			w.WriteHeader(http.StatusInternalServerError)
+// 			return
+// 		}
+// 		if err := bcrypt.CompareHashAndPassword([]byte(token), []byte(pass)); err != nil {
+// 			w.WriteHeader(http.StatusForbidden)
+// 			return
+// 		}
+// 		handler.ServeHTTP(w, r)
+// 	})
+// }
 
 func (b *BaseHandler) createSpace(w http.ResponseWriter, r *http.Request) {
 	txn := b.db.MustBeginTx(r.Context(), nil)
