@@ -13,3 +13,11 @@ services:
       - type: bind
         source: ./internal/fixtures/postgres/tables.sql
         target: /tmp/psql_data/tables.sql
+  
+  gyft:
+    build: .
+    hostname: localhost
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
