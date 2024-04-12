@@ -51,6 +51,6 @@ CREATE TABLE gyft.auth (
     pass_token text NOT NULL
 );
 
-CREATE USER gyftusr WITH PASSWORD 'gyftPwE0';
+CREATE USER gyftusr WITH PASSWORD '<replace with pw>';
 GRANT ALL ON SCHEMA gyft TO gyftusr;
 GRANT ALL ON ALL TABLES IN SCHEMA gyft TO gyftusr;
